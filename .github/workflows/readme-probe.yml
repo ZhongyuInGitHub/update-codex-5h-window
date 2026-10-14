@@ -1,0 +1,48 @@
+name: README scheduled probe
+
+on:
+  schedule:
+    # 22:00 UTC = 06:00 Asia/Shanghai on the following day.
+    - cron: '0 22 * * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/readme-probe.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  read-readme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read README first line and record evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f README.md
+          first_line="$(head -n 1 README.md)"
+          {
+            printf 'utc_time=%s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            printf 'beijing_time=%s\n' "$(TZ=Asia/Shanghai date +'%Y-%m-%dT%H:%M:%S%z')"
+            printf 'event=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'run_url=https://github.com/%s/actions/runs/%s\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+            printf 'readme_first_line=%s\n' "$first_line"
+          } | tee readme-probe.txt
+          {
+            printf '### README probe evidence\n\n'
+            printf '\x60\x60\x60text\n'
+            cat readme-probe.txt
+            printf '\x60\x60\x60\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: readme-probe-${{ github.run_id }}
+          path: readme-probe.txt
+          if-no-files-found: error
+          retention-days: 90
